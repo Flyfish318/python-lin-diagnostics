@@ -41,7 +41,7 @@ class Transport:
         self._reset_state()
         self._driver = driver
         self._scheduled_tx_event = None
-        self._timeout = 0.500
+        self._timeout = 0.010
 
     def run(self):
         self._thread = TransportThread(self)
@@ -92,7 +92,7 @@ class Transport:
         if self._is_slave:
             event_id = SLAVE_DIAGNOSTIC_FRAME_ID
 
-        print(f"Transmitting: {event_id} {nad} {sid} {data}")
+        print(f"Transmitting: {event_id} {nad} {sid} {[hex(x) for x in data]}")
 
         if len(data) <= 5:
             print("Using SF")
@@ -105,14 +105,43 @@ class Transport:
                 response[3 + i] = byte
             self._tx_queue.put(LinEvent(event_id, bytes(response), LinEvent.ChecksumType.CLASSIC))
         else:
-            pass
+            # FF
+            pci = (Transport.PCIType.FF << 4) | ((len(data) >> 8) & 0xf)
+            response = bytearray([nad, pci, len(data) & 0xff, sid, 0xff, 0xff, 0xff, 0xff])
+            current_byte = 0
+            # Copy over pyaload
+            for i, byte in enumerate(data[current_byte:current_byte + 4]):
+                response[4 + i] = byte
+            self._tx_queue.put(LinEvent(event_id, bytes(response), LinEvent.ChecksumType.CLASSIC))
+            current_byte = 4
+
+            # CF
+            current_frame = 0
+            while current_byte < len(data):
+                current_frame = (current_frame + 1) % 16
+                pci = (Transport.PCIType.CF << 4) | current_frame
+                response = bytearray([nad, pci, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff])
+                # Copy over pyaload
+                end_byte = min(len(data), current_byte + 6)
+                for i, byte in enumerate(data[current_byte:end_byte]):
+                    response[2 + i] = byte
+                current_byte = end_byte
+                self._tx_queue.put(LinEvent(event_id, bytes(response), LinEvent.ChecksumType.CLASSIC))
+
 
     def _receive_from_driver(self, event):
         event_id, frame_bytes, frame_length = event.event_id, event.event_payload, len(event.event_payload)
 
-        # TODO: Clear on-deck for slave
+        if self._is_slave and event.direction == LinEvent.Direction.TX and self._scheduled_tx_event is not None:
+            if (self._scheduled_tx_event.event_id == event.event_id) and (self._scheduled_tx_event.event_payload == event.event_payload):
+                self._scheduled_tx_event = None
+                if not self._tx_queue.empty():
+                    event = self._tx_queue.get()
+                    self._driver.schedule_slave_response(event)
+                    self._scheduled_tx_event = event
 
-        if event.direction == LinEvent.Direction.RX:
+
+        elif event.direction == LinEvent.Direction.RX:
             if frame_length < 8:
                 # If a PDU is not completely filled (applies to CF and SF PDUs only) the unused bytes shall be filled with ones, i.e. their value shall be 255 (0xFF).
                 raise ValueError("SF Frames with unused bytes shall be padded to 8 bytes with ones")
@@ -143,6 +172,7 @@ class Transport:
                 self._rx_queue.put((nad, sid, data))
 
             elif pci_type == Transport.PCIType.FF:
+                print("Received FF")
                 # First Frame
                 # Request:
                 # | NAD | PCI | LEN | SID | D1 | D2 | D3 | D4 |
@@ -162,8 +192,10 @@ class Transport:
                 self._current_frame_data += frame_bytes[4:]
                 self._current_nad = nad
                 self._current_sid = sid
+                print(f"Remaining bytes: {self._remaining_bytes}")
 
             elif pci_type == Transport.PCIType.CF:
+                print("Received CF")
                 # Consecutive Frame
                 # Request/Response:
                 # | NAD | PCI | D1 | D2 | D3 | D4 | D5 | D6 |
@@ -175,7 +207,8 @@ class Transport:
                     return
 
                 frame_counter = additional_information
-                if frame_counter != (self._current_frame_counter + 1) % 16:
+                next_frame_counter = (self._current_frame_counter + 1) % 16
+                if frame_counter != next_frame_counter:
                     logger.warn("Received an out-of-order Consecutive Frame but was not expecting more bytes. Discarding")
                     self._reset_state()
                     return
@@ -183,7 +216,9 @@ class Transport:
                 length = min(self._remaining_bytes, 6)
                 self._remaining_bytes -= length
                 self._current_frame_data += frame_bytes[2:2 + length]
+                self._current_frame_counter = next_frame_counter
 
+                print(f"Remaining bytes: {self._remaining_bytes}")
                 if (self._remaining_bytes == 0):
                     nad, sid, data = self._current_nad, self._current_sid, self._current_frame_data
                     self._reset_state()

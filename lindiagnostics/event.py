@@ -20,4 +20,5 @@ class LinEvent:
         return repr(self)
 
     def __repr__(self):
-        return f"LinEvent(0x{self.event_id:X}, {self.event_payload}, {self.checksum_type}, {self.direction}, {self.timestamp})"
+        hex_dump = ", ".join([f"0x{x:x}" for x in self.event_payload])
+        return f"LinEvent(0x{self.event_id:X}, bytes([{hex_dump}]), {self.checksum_type}, {self.direction}, {self.timestamp})"

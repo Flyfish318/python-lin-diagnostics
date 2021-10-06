@@ -46,6 +46,11 @@ class LinSlave:
             elif sid == 0xb7:
                 # Assign frame identifier range
                 pass
+            elif sid == 0x31:
+                # Routine Contrl
+                print(f"Slave received Routine Control: {nad} {sid} {data}")
+                if data[0] == 0x01 and data[1] == 0x00 and data[2] == 0x01:
+                    self._transport.transmit(self._nad, sid + 0x40, data)
             elif sid == 0x3E:
                 # UDS Tester present
                 if data[0] == 0x00:
