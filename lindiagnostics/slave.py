@@ -1,14 +1,33 @@
-from .constants import BROADCAST_NAD
+from .constants import *
 from .transport import Transport
 
 class LinSlave:
-    def __init__(self, nad, supplier_id, function_id, variant_id, driver):
+    def __init__(self, nad, supplier_id, function_id, variant_id, driver, serial_number=bytes([0x01, 0x02, 0x03, 0x04])):
         self._nad = nad
+        self._saved_nad = None
         self._supplier_id = supplier_id
         self._function_id = function_id
         self._variant_id = variant_id
+        self._serial_number = serial_number
         self._driver = driver
         self._transport = Transport(True, driver)
+        self._frame_identifiers = [None, None, None, None, None]
+
+    @property
+    def nad(self):
+        return self._nad
+
+    @property
+    def saved_nad(self):
+        return self._saved_nad
+
+    @property
+    def frame_identifiers(self):
+        return self._frame_identifiers
+
+    def matches_id(self, supplier_id, function_id):
+        return (((supplier_id == self._supplier_id) or (supplier_id == BROADCAST_SUPPLIER_ID)) and
+                ((function_id == self._function_id) or (function_id == BROADCAST_FUNCTION_ID)))
 
     def simulate(self):
         # Don't run the transport, we'll cycle it manually since we require the caller to
@@ -22,32 +41,69 @@ class LinSlave:
             pass
 
         if nad == self._nad or nad == BROADCAST_NAD:
-            if sid == 0xB2:
-                # Read by ID
-                pass
-            elif sid == 0xB6:
-                # Save configuration
-                pass
-            elif sid == 0xB0:
-                # Assign NAD
-                pass
-            elif sid == 0xB1:
-                # Assign frame identifier
-                pass
+            if sid == READ_BY_IDENTIFIER_SID:
+                identifier = data[0]
+                supplier_id = data[1] | (data[2] << 8)
+                function_id = data[3] | (data[4] << 8)
+                if self.matches_id(supplier_id, function_id):
+                    if identifier == DATA_IDENTIFIER_LIN_PRODUCT_IDENTIFIER:
+                        result = bytes([self._supplier_id & 0xff, self._supplier_id >> 8, self._function_id & 0xff, self._function_id >> 8, self._variant_id & 0xff])
+                        self._transport.transmit(self._nad, sid + 0x40, result)
+                    elif identifier == DATA_IDENTIFIER_SERIAL_NUMBER:
+                        result = self._serial_number
+                        self._transport.transmit(self._nad, sid + 0x40, result)
+
+            elif sid == SAVE_CONFIGURATION_SID:
+                self._saved_nad = self._nad
+                self._transport.transmit(self._nad, sid + 0x40, bytes())
+
+            elif sid == ASSIGN_NAD_SID:
+                supplier_id = data[0] | (data[1] << 8)
+                function_id = data[2] | (data[3] << 8)
+                new_nad = data[4]
+                if self.matches_id(supplier_id, function_id):
+                    self._transport.transmit(self._nad, sid + 0x40, bytes())
+                    self._nad = new_nad
+                        
+            elif sid == ASSIGN_FRAME_ID_SID:
+                start_index = data[0]
+                for i in range(4):
+                    try:
+                        if data[1 + i] == 0x00:
+                            # Unset
+                            self._frame_identifiers[start_index + i] = None
+                        elif data[1 + i] == 0xff:
+                            # Do-not-care
+                            pass
+                        else:
+                            # Assign
+                            self._frame_identifiers[start_index + i] = data[1 + i]
+                    except IndexError:
+                        break
+                self._transport.transmit(self._nad, sid + 0x40, bytes())
+
             elif sid == 0xB3:
                 # Conditional change NAD
                 pass
+
             elif sid == 0xb4:
                 # Data dump
                 pass
+
             elif sid == 0xb5:
                 # assign nad via snpd
                 pass
+
             elif sid == 0xb7:
                 # Assign frame identifier range
                 pass
+
+            elif sid == 0x22:
+                # UDS Read Data By Identifier
+                if data[0] == 0x12 and data[1] == 0x34:
+                    self._transport.transmit(self._nad, sid + 0x40, bytes([data[0], data[1], 0x00, 0x01]))
             elif sid == 0x31:
-                # Routine Contrl
+                # UDS Routine Contrl
                 print(f"Slave received Routine Control: {nad} {sid} {data}")
                 if data[0] == 0x01 and data[1] == 0x00 and data[2] == 0x01:
                     self._transport.transmit(self._nad, sid + 0x40, data)

@@ -97,8 +97,9 @@ class SimulatedLinNetwork:
             self.master_driver = SimulatedLinDriver(self, False)
         return self.master_driver
 
-    def register_slave(self, nad, supplier_id, function_id, variant_id):
+    def register_slave(self, nad, supplier_id, function_id, variant_id, serial_number=None):
         slave_driver = SimulatedLinDriver(self, True)
-        slave = LinSlave(nad, supplier_id, function_id, variant_id, slave_driver)
+        slave = LinSlave(nad, supplier_id, function_id, variant_id, slave_driver, serial_number=serial_number)
         self.slaves.append(slave)
         self.slave_drivers.append(slave_driver)
+        return slave
