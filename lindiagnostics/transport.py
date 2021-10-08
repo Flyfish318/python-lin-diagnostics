@@ -98,7 +98,8 @@ class Transport:
             print("Using SF")
             # SF
             # Pad with 0xff
-            pci = (Transport.PCIType.SF << 4) | len(data)
+            # The length shall then be set to the number of used data bytes plus one (for the SID or RSID)
+            pci = (Transport.PCIType.SF << 4) | (len(data) + 1)
             response = bytearray([nad, pci, sid, 0xff, 0xff, 0xff, 0xff, 0xff])
             # Copy over pyaload
             for i, byte in enumerate(data):
@@ -166,7 +167,8 @@ class Transport:
                     self._reset_state()
 
                 sid = frame_bytes[2]
-                length = additional_information
+                # The length shall then be set to the number of used data bytes plus one (for the SID or RSID)
+                length = additional_information - 1
                 data = frame_bytes[3:3+length]
                 self._reset_state()
                 self._rx_queue.put((nad, sid, data))

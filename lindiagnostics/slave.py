@@ -29,6 +29,18 @@ class LinSlave:
         return (((supplier_id == self._supplier_id) or (supplier_id == BROADCAST_SUPPLIER_ID)) and
                 ((function_id == self._function_id) or (function_id == BROADCAST_FUNCTION_ID)))
 
+    def get_id_bytes(self, id_type):
+        if id_type == DATA_IDENTIFIER_LIN_PRODUCT_IDENTIFIER:
+            return bytes([self._supplier_id & 0xff, self._supplier_id >> 8, self._function_id & 0xff, self._function_id >> 8, self._variant_id & 0xff])
+        elif id_type == DATA_IDENTIFIER_SERIAL_NUMBER:
+            return self._serial_number
+        else:
+            print(f"Unsupported ID type: {id_type}")
+            return None
+
+    def transmit_negative_response(self, requested_sid, error_code):
+        self._transport.transmit(self._nad, 0x7F, bytes([requested_sid, error_code]))
+
     def simulate(self):
         # Don't run the transport, we'll cycle it manually since we require the caller to
         # cycle the slave periodically
@@ -46,12 +58,11 @@ class LinSlave:
                 supplier_id = data[1] | (data[2] << 8)
                 function_id = data[3] | (data[4] << 8)
                 if self.matches_id(supplier_id, function_id):
-                    if identifier == DATA_IDENTIFIER_LIN_PRODUCT_IDENTIFIER:
-                        result = bytes([self._supplier_id & 0xff, self._supplier_id >> 8, self._function_id & 0xff, self._function_id >> 8, self._variant_id & 0xff])
-                        self._transport.transmit(self._nad, sid + 0x40, result)
-                    elif identifier == DATA_IDENTIFIER_SERIAL_NUMBER:
-                        result = self._serial_number
-                        self._transport.transmit(self._nad, sid + 0x40, result)
+                    response = self.get_id_bytes(identifier)
+                    if response is not None:
+                        self._transport.transmit(self._nad, sid + 0x40, response)
+                    else:
+                        self.transmit_negative_response(sid, 0x12)
 
             elif sid == SAVE_CONFIGURATION_SID:
                 self._saved_nad = self._nad
@@ -65,7 +76,7 @@ class LinSlave:
                     self._transport.transmit(self._nad, sid + 0x40, bytes())
                     self._nad = new_nad
                         
-            elif sid == ASSIGN_FRAME_ID_SID:
+            elif sid == ASSIGN_FRAME_IDENTIFIER_RANGE_SID:
                 start_index = data[0]
                 for i in range(4):
                     try:
@@ -82,20 +93,36 @@ class LinSlave:
                         break
                 self._transport.transmit(self._nad, sid + 0x40, bytes())
 
-            elif sid == 0xB3:
-                # Conditional change NAD
+            elif sid == CONDITIONAL_CHANGE_NAD_SID:
+                id_type = data[0]
+                id_byte_index = data[1]
+                id_mask = data[2]
+                id_invert = data[3]
+                new_nad = data[4]
+
+                id_bytes = self.get_id_bytes(id_type)
+                if id_bytes is None:
+                    id_bytes = [0x00] * 5
+
+                target_byte = (id_bytes[id_byte_index - 1] ^ id_invert) & id_mask
+                
+                if target_byte == 0:
+                    # The Conditional Change NAD is addressed with the current NAD, i.e. it does not use the initial
+                    # NAD as opposed to the Assign NAD request
+                    self._nad = new_nad
+                    self._transport.transmit(self._nad, sid + 0x40, bytes())
+
+            elif sid == DATA_DUMP_SID:
+                # Data dump - user defined. Mirror back command for now
+                self._transport.transmit(self._nad, sid + 0x40, data)
+
+            elif sid == ASSIGN_NAD_VIA_SNPD_SID:
+                # assign nad via snpd - too lazy to go lookup snpd spec
+                # LIN Slave Node Position Detection - Implementation Note, version 1.0 
                 pass
 
-            elif sid == 0xb4:
-                # Data dump
-                pass
-
-            elif sid == 0xb5:
-                # assign nad via snpd
-                pass
-
-            elif sid == 0xb7:
-                # Assign frame identifier range
+            elif sid == ASSIGN_FRAME_IDENTIFIER_SID:
+                # Assign frame identifier - obsolete, too lazy to lookup old spec
                 pass
 
             elif sid == 0x22:
