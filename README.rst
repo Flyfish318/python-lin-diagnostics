@@ -31,7 +31,7 @@ Kvaser Setup
 The latest can be found on Kvaser's download page: https://www.kvaser.com/download/
 2. On Windows, you may need to install the CAN drivers (from the same page).
 3. Kvaser LIN adapters use a DB9 connector with a specific pinout and expects the LIN reference voltage and ground to be provided.
-The LIN Spec allows reference voltages (V<sub>BAT</sub>) from 8 to 18V.
+The LIN Spec allows reference voltages (V\ :sub:`BAT`\) from 8 to 18V.
 The Kvaser manual shows the pinout is:
 
    * Ground: Pin 3
