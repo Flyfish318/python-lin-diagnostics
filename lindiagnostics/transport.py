@@ -142,7 +142,13 @@ class Transport:
                     self._scheduled_tx_event = event
 
 
-        elif event.direction == LinEvent.Direction.RX:
+        elif ((event.direction == LinEvent.Direction.RX) and
+              (self._is_slave and event.event_id == MASTER_DIAGNOSTIC_FRAME_ID) or
+              (not self._is_slave and event.event_id == SLAVE_DIAGNOSTIC_FRAME_ID)):
+            if not self._is_slave and frame_length == 0:
+                # Master's will see non-responsive slaves as empty messages
+                return
+
             if frame_length < 8:
                 # If a PDU is not completely filled (applies to CF and SF PDUs only) the unused bytes shall be filled with ones, i.e. their value shall be 255 (0xFF).
                 raise ValueError("SF Frames with unused bytes shall be padded to 8 bytes with ones")

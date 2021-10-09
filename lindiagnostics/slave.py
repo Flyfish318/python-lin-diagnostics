@@ -1,6 +1,32 @@
 from .constants import *
 from .transport import Transport
 
+from threading import Thread, Event
+import time
+
+class LinSlaveThread(Thread):
+    def __init__(self, slave, step_size = 0.010):
+        Thread.__init__(self)
+        self._slave = slave
+        self._step_size = step_size
+        self._running = Event()
+
+    def __enter__(self):
+        self.start()
+        return self
+
+    def __exit__(self, type, value, traceback):
+        self.stop()
+
+    def run(self):
+        self._running.clear()
+        while not self._running.is_set():
+            self._slave.simulate()
+            time.sleep(self._step_size)
+
+    def stop(self):
+        self._running.set()
+
 class LinSlave:
     def __init__(self, nad, supplier_id, function_id, variant_id, driver, serial_number=bytes([0x01, 0x02, 0x03, 0x04])):
         self._nad = nad

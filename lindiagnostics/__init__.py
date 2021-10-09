@@ -1,2 +1,2 @@
 from .master import LinMaster
-from .slave import LinSlave
+from .slave import LinSlave, LinSlaveThread

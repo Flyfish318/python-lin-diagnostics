@@ -4,13 +4,6 @@ import time
 from ..slave import LinSlave
 from ..event import LinEvent
 
-class SimulatedLinEvent:
-    def __init__(self, event_id, event_payload, is_rx):
-        self.event_id = event_id
-        self.event_payload = event_payload
-        self.is_rx = is_rx
-
-
 class SimulatedLinDriver:
     def __init__(self, network, is_slave):
         self.is_slave = is_slave
